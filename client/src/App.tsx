@@ -13,6 +13,7 @@ import AuditLogPage from "@/pages/AuditLog";
 import Login from "@/pages/Login";
 import CheckoutSuccess from "@/pages/CheckoutSuccess";
 import Compliance from "@/pages/Compliance";
+import DeveloperHub from "@/pages/DeveloperHub";
 
 function Router() {
   return (
@@ -26,6 +27,7 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/checkout/success" component={CheckoutSuccess} />
       <Route path="/compliance" component={Compliance} />
+      <Route path="/developer" component={DeveloperHub} />
       <Route component={NotFound} />
     </Switch>
   );

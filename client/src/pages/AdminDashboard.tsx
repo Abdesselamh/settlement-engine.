@@ -4,10 +4,9 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { Users, CreditCard, Activity, TrendingUp, ShieldCheck, Download, FileText, AlertCircle, AlertTriangle, Bell, CheckCircle, Clock, XCircle } from "lucide-react";
+import { Users, CreditCard, Activity, TrendingUp, ShieldCheck, Download, FileText, AlertTriangle, Bell, CheckCircle, Clock, XCircle, BarChart2, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { User, AuditLog, Invoice } from "@shared/schema";
@@ -66,6 +65,7 @@ export default function AdminDashboard() {
     queryFn: () => fetch("/api/notifications?email=admin@instantsettlement.ai").then(r => r.json()),
   });
   const { data: transactions = [] } = useQuery<any[]>({ queryKey: ["/api/transactions"] });
+  const { data: frozenTxs = [] } = useQuery<any[]>({ queryKey: ["/api/admin/frozen"] });
 
   const kycReviewMutation = useMutation({
     mutationFn: ({ id, status, notes }: { id: number; status: string; notes: string }) =>
@@ -83,6 +83,19 @@ export default function AdminDashboard() {
   const markReadMutation = useMutation({
     mutationFn: (id: number) => apiRequest("PATCH", `/api/notifications/${id}/read`, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/notifications"] }),
+  });
+
+  const releaseFrozenMutation = useMutation({
+    mutationFn: ({ id, action, notes }: { id: number; action: string; notes: string }) =>
+      apiRequest("POST", `/api/admin/frozen/${id}/release`, { action, notes }),
+    onSuccess: () => {
+      toast({ title: "Frozen Transaction Updated", description: "Admin decision recorded and audit logged." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/frozen"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/audit-logs"] });
+    },
+    onError: (e: any) => toast({ title: "Action Failed", description: e.message, variant: "destructive" }),
   });
 
   function tierBadge(tier?: string | null) {
@@ -116,6 +129,7 @@ export default function AdminDashboard() {
   const unreadCount = notifications.filter((n: any) => !n.read).length;
   const highRiskTxs = transactions.filter((t: any) => t.riskScore === 'High');
   const pendingKyc = kycList.filter((k: any) => k.status === 'pending');
+  const [frozenNotes, setFrozenNotes] = useState<Record<number, string>>({});
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -142,7 +156,7 @@ export default function AdminDashboard() {
             <StatCard icon={CreditCard} label="Active Subs" value={stats?.activeSubscriptions ?? 0} sub="Revenue generating" />
             <StatCard icon={Activity} label="Settlements" value={(stats?.totalTransactions ?? 0).toLocaleString()} sub="All-time processed" />
             <StatCard icon={TrendingUp} label="Revenue" value={`$${((stats?.totalRevenue ?? 0) / 1000).toFixed(1)}K`} sub="Stripe collected" />
-            <StatCard icon={AlertTriangle} label="High Risk TXs" value={stats?.highRiskTxs ?? highRiskTxs.length} sub="Needs review" alert={(stats?.highRiskTxs ?? highRiskTxs.length) > 0} />
+            <StatCard icon={Lock} label="Frozen TXs" value={frozenTxs.length} sub="Awaiting fraud audit" alert={frozenTxs.length > 0} />
             <StatCard icon={FileText} label="Pending KYC" value={stats?.pendingKyc ?? pendingKyc.length} sub="Awaiting review" alert={(stats?.pendingKyc ?? pendingKyc.length) > 0} />
           </div>
 
@@ -222,6 +236,13 @@ export default function AdminDashboard() {
               </TabsTrigger>
               <TabsTrigger value="invoices" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground" data-testid="tab-invoices">
                 <FileText className="w-4 h-4 mr-2" /> Invoices
+              </TabsTrigger>
+              <TabsTrigger value="frozen" className="data-[state=active]:bg-red-600 data-[state=active]:text-white" data-testid="tab-frozen">
+                <Lock className="w-4 h-4 mr-2 text-red-400" /> Fraud Queue
+                {frozenTxs.length > 0 && <span className="ml-2 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center animate-pulse">{frozenTxs.length}</span>}
+              </TabsTrigger>
+              <TabsTrigger value="reports" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground" data-testid="tab-reports">
+                <BarChart2 className="w-4 h-4 mr-2" /> Reports
               </TabsTrigger>
             </TabsList>
 
@@ -536,6 +557,195 @@ export default function AdminDashboard() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </div>
+            </TabsContent>
+            {/* Frozen / Fraud Queue Tab */}
+            <TabsContent value="frozen">
+              <div className="glass-panel rounded-2xl border border-red-500/10 overflow-hidden">
+                <div className="p-4 border-b border-red-500/10 bg-red-500/5 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Lock className="w-5 h-5 text-red-400" />
+                    <div>
+                      <h3 className="font-semibold text-white">Fraud Prevention Queue</h3>
+                      <p className="text-xs text-red-400/70">Auto-frozen: High risk + amount ≥ $1M. Manual admin audit required before release.</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Badge className="bg-red-500/20 text-red-400 border-red-500/30 animate-pulse">{frozenTxs.length} Frozen</Badge>
+                    <a href="/api/admin/reports/frozen/csv" target="_blank" data-testid="link-frozen-csv">
+                      <Button size="sm" variant="outline" className="gap-1 text-xs border-white/10"><Download className="w-3 h-3" /> CSV</Button>
+                    </a>
+                  </div>
+                </div>
+                {frozenTxs.length === 0 ? (
+                  <div className="p-12 text-center">
+                    <CheckCircle className="w-10 h-10 mx-auto text-green-400 mb-3" />
+                    <p className="text-muted-foreground">No frozen transactions — fraud queue is clear.</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-red-500/10">
+                    {frozenTxs.map((tx: any) => (
+                      <div key={tx.id} data-testid={`card-frozen-${tx.id}`} className="p-5 bg-red-500/[0.02] hover:bg-red-500/5">
+                        <div className="flex items-start justify-between gap-4 mb-3">
+                          <div>
+                            <div className="flex items-center gap-3 mb-1">
+                              <span className="font-mono font-bold text-white">{tx.txId}</span>
+                              <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-xs">FROZEN</Badge>
+                              <RiskBadge score={tx.riskScore} />
+                            </div>
+                            <p className="text-2xl font-bold text-white">{Number(tx.amount).toLocaleString()} <span className="text-lg text-muted-foreground">{tx.currency}</span></p>
+                            <p className="text-sm text-muted-foreground">{tx.sender} → {tx.receiver}</p>
+                          </div>
+                          <div className="text-right text-xs text-muted-foreground">
+                            <p>Latency: {tx.latencyMs}ms</p>
+                            <p>{new Date(tx.timestamp).toLocaleString()}</p>
+                          </div>
+                        </div>
+                        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 mb-4">
+                          <p className="text-xs text-red-300 font-medium mb-1">Freeze Reason:</p>
+                          <p className="text-xs text-red-200/80">{tx.frozenReason || "High risk transaction auto-frozen for manual review."}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <input
+                            placeholder="Admin notes (optional)..."
+                            value={frozenNotes[tx.id] || ""}
+                            onChange={e => setFrozenNotes(prev => ({ ...prev, [tx.id]: e.target.value }))}
+                            data-testid={`input-frozen-notes-${tx.id}`}
+                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+                          />
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700 text-white gap-2"
+                            disabled={releaseFrozenMutation.isPending}
+                            onClick={() => releaseFrozenMutation.mutate({ id: tx.id, action: 'approve', notes: frozenNotes[tx.id] || '' })}
+                            data-testid={`button-approve-frozen-${tx.id}`}
+                          >
+                            <CheckCircle className="w-4 h-4" /> Approve & Release
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="bg-red-600 hover:bg-red-700 text-white gap-2"
+                            disabled={releaseFrozenMutation.isPending}
+                            onClick={() => releaseFrozenMutation.mutate({ id: tx.id, action: 'reject', notes: frozenNotes[tx.id] || '' })}
+                            data-testid={`button-reject-frozen-${tx.id}`}
+                          >
+                            <XCircle className="w-4 h-4" /> Reject Transaction
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* Reports Tab */}
+            <TabsContent value="reports">
+              <div className="space-y-6">
+                <div className="glass-panel rounded-2xl border-white/5 p-6">
+                  <h3 className="font-semibold text-white mb-1 flex items-center gap-2"><BarChart2 className="w-5 h-5 text-primary" /> Institutional Reporting Hub</h3>
+                  <p className="text-sm text-muted-foreground mb-6">Export financial audit logs and reports optimized for tax authority and compliance audits. AES-256 certified data lineage.</p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Audit Log CSV */}
+                    <div className="glass-panel border border-white/5 rounded-xl p-5">
+                      <div className="flex items-start gap-3 mb-4">
+                        <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+                          <Download className="w-5 h-5 text-blue-400" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-white">Audit Log — CSV</p>
+                          <p className="text-xs text-muted-foreground">All system events, user actions, IP addresses. Machine-readable for SIEM/compliance tools.</p>
+                        </div>
+                      </div>
+                      <a href="/api/admin/reports/audit-log/csv" target="_blank" data-testid="link-audit-csv">
+                        <Button className="w-full gap-2 bg-blue-600/80 hover:bg-blue-600 text-white"><Download className="w-4 h-4" /> Export CSV</Button>
+                      </a>
+                    </div>
+
+                    {/* Audit Log PDF/HTML */}
+                    <div className="glass-panel border border-white/5 rounded-xl p-5">
+                      <div className="flex items-start gap-3 mb-4">
+                        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <FileText className="w-5 h-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-white">Audit Log — Compliance PDF</p>
+                          <p className="text-xs text-muted-foreground">Formatted institutional report with branding, FATF/ISO markings — print-ready for tax auditors.</p>
+                        </div>
+                      </div>
+                      <a href="/api/admin/reports/audit-log/pdf" target="_blank" data-testid="link-audit-pdf">
+                        <Button className="w-full gap-2"><FileText className="w-4 h-4" /> View Compliance Report</Button>
+                      </a>
+                    </div>
+
+                    {/* Transaction CSV */}
+                    <div className="glass-panel border border-white/5 rounded-xl p-5">
+                      <div className="flex items-start gap-3 mb-4">
+                        <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center flex-shrink-0">
+                          <Activity className="w-5 h-5 text-green-400" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-white">Settlement Transactions — CSV</p>
+                          <p className="text-xs text-muted-foreground">All settlement transactions with AI risk scores, frozen status, and latency data.</p>
+                        </div>
+                      </div>
+                      <a href="/api/export/transactions/csv" target="_blank" data-testid="link-transactions-csv">
+                        <Button className="w-full gap-2 bg-green-600/80 hover:bg-green-600 text-white"><Download className="w-4 h-4" /> Export Transactions CSV</Button>
+                      </a>
+                    </div>
+
+                    {/* Transaction PDF */}
+                    <div className="glass-panel border border-white/5 rounded-xl p-5">
+                      <div className="flex items-start gap-3 mb-4">
+                        <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center flex-shrink-0">
+                          <FileText className="w-5 h-5 text-purple-400" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-white">Settlement Report — Institutional PDF</p>
+                          <p className="text-xs text-muted-foreground">Full settlement report with risk color-coding, frozen status flags. Suitable for board reporting.</p>
+                        </div>
+                      </div>
+                      <a href="/api/export/transactions/pdf" target="_blank" data-testid="link-transactions-pdf">
+                        <Button className="w-full gap-2 bg-purple-600/80 hover:bg-purple-600 text-white"><FileText className="w-4 h-4" /> View Settlement Report</Button>
+                      </a>
+                    </div>
+
+                    {/* Frozen Transactions CSV */}
+                    <div className="glass-panel border border-red-500/10 rounded-xl p-5 bg-red-500/5">
+                      <div className="flex items-start gap-3 mb-4">
+                        <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                          <Lock className="w-5 h-5 text-red-400" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-white">Frozen Transactions — CSV</p>
+                          <p className="text-xs text-muted-foreground">All auto-frozen transactions with fraud reasons. Required for AML/FATF compliance filings.</p>
+                        </div>
+                      </div>
+                      <a href="/api/admin/reports/frozen/csv" target="_blank" data-testid="link-frozen-csv-report">
+                        <Button className="w-full gap-2 bg-red-600/80 hover:bg-red-600 text-white"><Download className="w-4 h-4" /> Export Fraud Report CSV</Button>
+                      </a>
+                    </div>
+
+                    {/* Security Info */}
+                    <div className="glass-panel border border-white/5 rounded-xl p-5 flex flex-col justify-between">
+                      <div className="space-y-3 mb-4">
+                        {[
+                          { label: "Encryption", value: "AES-256-GCM", icon: "🔐" },
+                          { label: "Standard", value: "ISO 27001 / FATF", icon: "✅" },
+                          { label: "Data Residency", value: "EU / US dual-region", icon: "🌍" },
+                          { label: "Retention", value: "7 years (configurable)", icon: "📂" },
+                        ].map(({ label, value, icon }) => (
+                          <div key={label} className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">{icon} {label}</span>
+                            <span className="text-white font-medium">{value}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <Badge variant="outline" className="w-fit text-xs bg-green-500/5 text-green-400 border-green-500/20">GDPR · FATF · SOC2 Compliant</Badge>
+                    </div>
+                  </div>
                 </div>
               </div>
             </TabsContent>

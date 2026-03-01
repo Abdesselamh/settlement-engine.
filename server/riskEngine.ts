@@ -1,5 +1,7 @@
 export interface RiskAssessment {
   score: 'Low' | 'Medium' | 'High';
+  shouldFreeze: boolean;
+  freezeReason?: string;
   factors: string[];
   breakdown: {
     amountRisk: number;
@@ -11,8 +13,9 @@ export interface RiskAssessment {
   confidence: number;
 }
 
-const HIGH_RISK_JURISDICTIONS = ['Iran', 'North Korea', 'Syria', 'Sudan'];
-const HIGH_RISK_ENTITIES = ['unknown', 'offshore', 'anonymous'];
+const HIGH_RISK_JURISDICTIONS = ['Iran', 'North Korea', 'Syria', 'Sudan', 'Belarus', 'Myanmar'];
+const HIGH_RISK_ENTITIES = ['unknown', 'offshore', 'anonymous', 'shell'];
+const FREEZE_AMOUNT_THRESHOLD = 1_000_000; // $1M triggers freeze review
 
 export function assessRisk(tx: {
   amount: string;
@@ -20,6 +23,7 @@ export function assessRisk(tx: {
   sender: string;
   receiver: string;
   latencyMs: string;
+  ipAddress?: string;
 }): RiskAssessment {
   const amount = Number(tx.amount);
   const latency = Number(tx.latencyMs);
@@ -54,6 +58,12 @@ export function assessRisk(tx: {
     breakdown.counterpartyRisk = 15; factors.push('Self-directed transaction detected');
   } else { breakdown.counterpartyRisk = 3; }
 
+  // IP risk (0-10 points) — suspicious if private/loopback or missing
+  if (tx.ipAddress) {
+    const suspiciousIp = tx.ipAddress.startsWith('10.') || tx.ipAddress.startsWith('192.168.') || tx.ipAddress === '127.0.0.1';
+    if (suspiciousIp) { breakdown.counterpartyRisk = Math.max(breakdown.counterpartyRisk, 12); factors.push('Transaction from internal/suspicious IP range'); }
+  }
+
   // Latency risk (0-10 points)
   if (latency > 1.5) { breakdown.latencyRisk = 10; factors.push('Abnormal settlement latency detected'); }
   else if (latency > 1.0) { breakdown.latencyRisk = 5; }
@@ -65,8 +75,7 @@ export function assessRisk(tx: {
   else { breakdown.velocityRisk = 1; }
 
   const total = Object.values(breakdown).reduce((a, b) => a + b, 0);
-  const maxScore = 100;
-  const normalized = Math.min(total, maxScore);
+  const normalized = Math.min(total, 100);
 
   let score: 'Low' | 'Medium' | 'High';
   if (normalized >= 45) score = 'High';
@@ -78,10 +87,11 @@ export function assessRisk(tx: {
     factors.push('Transaction within normal parameters');
   }
 
-  return {
-    score,
-    factors,
-    breakdown,
-    confidence: Math.round(75 + Math.random() * 20),
-  };
+  // Freeze determination: High risk AND amount > $1M triggers automatic freeze
+  const shouldFreeze = score === 'High' && amount >= FREEZE_AMOUNT_THRESHOLD;
+  const freezeReason = shouldFreeze
+    ? `Automatic freeze: High-risk transaction over $${(FREEZE_AMOUNT_THRESHOLD / 1_000_000).toFixed(0)}M threshold. Admin audit required. Factors: ${factors.join('; ')}`
+    : undefined;
+
+  return { score, shouldFreeze, freezeReason, factors, breakdown, confidence: Math.round(75 + Math.random() * 20) };
 }

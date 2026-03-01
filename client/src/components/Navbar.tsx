@@ -12,7 +12,7 @@ export function Navbar() {
     { href: "/dashboard", label: "Dashboard" },
     { href: "/compliance", label: "Compliance" },
     { href: "/pricing", label: "Pricing" },
-    { href: "/audit-log", label: "Audit Log" },
+    { href: "/developer", label: "Developer" },
     { href: "/admin", label: "Admin" },
   ];
 
