@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "wouter";
 import { 
   ArrowLeft, ArrowRight, Play, Activity, Clock, Zap, 
-  CheckCircle2, AlertCircle, Loader2, Download, FileText, BarChart3
+  CheckCircle2, AlertCircle, Loader2, Download, FileText, BarChart3, ShieldAlert
 } from "lucide-react";
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, 
@@ -15,6 +15,7 @@ import {
   useUpdateTransactionStatus,
   useMetrics 
 } from "@/hooks/use-settlement";
+import { RiskBadge } from "@/components/RiskBadge";
 
 // Helper to format currency
 const formatCurrency = (amount: number | string) => {
@@ -307,12 +308,15 @@ export default function Dashboard() {
                         </div>
                       </div>
                       
-                      {tx.status === "Settled" && (
-                        <div className="text-right">
-                          <p className="text-[10px] text-muted-foreground uppercase">Latency</p>
-                          <p className="text-xs font-mono text-primary font-medium">{tx.latencyMs} ms</p>
-                        </div>
-                      )}
+                      <div className="text-right space-y-1">
+                        {(tx as any).riskScore && <RiskBadge score={(tx as any).riskScore} showIcon={false} />}
+                        {tx.status === "Settled" && (
+                          <div>
+                            <p className="text-[10px] text-muted-foreground uppercase">Latency</p>
+                            <p className="text-xs font-mono text-primary font-medium">{tx.latencyMs} ms</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </motion.div>
                 ))}

@@ -1,10 +1,12 @@
 import { db } from "./db";
 import {
-  transactions, users, auditLogs, invoices,
+  transactions, users, auditLogs, invoices, kycSubmissions, notifications,
   type InsertTransaction, type Transaction,
   type InsertUser, type User,
   type InsertAuditLog, type AuditLog,
   type InsertInvoice, type Invoice,
+  type InsertKyc, type KycSubmission,
+  type InsertNotification, type Notification,
 } from "@shared/schema";
 import { eq, desc, sql } from "drizzle-orm";
 
@@ -13,6 +15,7 @@ export interface IStorage {
   getTransactions(): Promise<Transaction[]>;
   createTransaction(tx: InsertTransaction): Promise<Transaction>;
   updateTransactionStatus(id: number, status: string): Promise<Transaction | undefined>;
+  updateTransactionRisk(id: number, riskScore: string, riskFactors: string): Promise<Transaction | undefined>;
   // Users
   getUsers(): Promise<User[]>;
   getUserById(id: number): Promise<User | undefined>;
@@ -27,7 +30,16 @@ export interface IStorage {
   getInvoices(): Promise<Invoice[]>;
   getInvoicesByUser(userId: number): Promise<Invoice[]>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
-  // Stripe products (from stripe schema)
+  // KYC
+  getKycSubmissions(): Promise<KycSubmission[]>;
+  getKycByEmail(email: string): Promise<KycSubmission | undefined>;
+  createKycSubmission(kyc: InsertKyc): Promise<KycSubmission>;
+  updateKycSubmission(id: number, data: Partial<KycSubmission>): Promise<KycSubmission | undefined>;
+  // Notifications
+  getNotifications(userEmail?: string): Promise<Notification[]>;
+  createNotification(n: InsertNotification): Promise<Notification>;
+  markNotificationRead(id: number): Promise<void>;
+  // Stripe
   getStripeProducts(): Promise<any[]>;
 }
 
@@ -42,10 +54,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateTransactionStatus(id: number, status: string): Promise<Transaction | undefined> {
-    const [updated] = await db.update(transactions)
-      .set({ status })
-      .where(eq(transactions.id, id))
-      .returning();
+    const [updated] = await db.update(transactions).set({ status }).where(eq(transactions.id, id)).returning();
+    return updated;
+  }
+
+  async updateTransactionRisk(id: number, riskScore: string, riskFactors: string): Promise<Transaction | undefined> {
+    const [updated] = await db.update(transactions).set({ riskScore, riskFactors }).where(eq(transactions.id, id)).returning();
     return updated;
   }
 
@@ -99,29 +113,58 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  async getKycSubmissions(): Promise<KycSubmission[]> {
+    return await db.select().from(kycSubmissions).orderBy(desc(kycSubmissions.submittedAt));
+  }
+
+  async getKycByEmail(email: string): Promise<KycSubmission | undefined> {
+    const [kyc] = await db.select().from(kycSubmissions).where(eq(kycSubmissions.userEmail, email));
+    return kyc;
+  }
+
+  async createKycSubmission(kyc: InsertKyc): Promise<KycSubmission> {
+    const [created] = await db.insert(kycSubmissions).values(kyc).returning();
+    return created;
+  }
+
+  async updateKycSubmission(id: number, data: Partial<KycSubmission>): Promise<KycSubmission | undefined> {
+    const [updated] = await db.update(kycSubmissions).set(data).where(eq(kycSubmissions.id, id)).returning();
+    return updated;
+  }
+
+  async getNotifications(userEmail?: string): Promise<Notification[]> {
+    if (userEmail) {
+      return await db.select().from(notifications)
+        .where(eq(notifications.userEmail, userEmail))
+        .orderBy(desc(notifications.createdAt))
+        .limit(50);
+    }
+    return await db.select().from(notifications).orderBy(desc(notifications.createdAt)).limit(100);
+  }
+
+  async createNotification(n: InsertNotification): Promise<Notification> {
+    const [created] = await db.insert(notifications).values(n).returning();
+    return created;
+  }
+
+  async markNotificationRead(id: number): Promise<void> {
+    await db.update(notifications).set({ read: true }).where(eq(notifications.id, id));
+  }
+
   async getStripeProducts(): Promise<any[]> {
     try {
       const result = await db.execute(sql`
         SELECT 
-          p.id as product_id,
-          p.name as product_name,
-          p.description as product_description,
-          p.active as product_active,
-          p.metadata as product_metadata,
-          pr.id as price_id,
-          pr.unit_amount,
-          pr.currency,
-          pr.recurring,
-          pr.active as price_active
+          p.id as product_id, p.name as product_name,
+          p.description as product_description, p.active as product_active,
+          p.metadata as product_metadata, pr.id as price_id,
+          pr.unit_amount, pr.currency, pr.recurring, pr.active as price_active
         FROM stripe.products p
         LEFT JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true
-        WHERE p.active = true
-        ORDER BY pr.unit_amount ASC
+        WHERE p.active = true ORDER BY pr.unit_amount ASC
       `);
       return result.rows as any[];
-    } catch {
-      return [];
-    }
+    } catch { return []; }
   }
 }
 

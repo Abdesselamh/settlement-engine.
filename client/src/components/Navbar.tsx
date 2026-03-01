@@ -10,6 +10,7 @@ export function Navbar() {
   const links = [
     { href: "/", label: "Platform" },
     { href: "/dashboard", label: "Dashboard" },
+    { href: "/compliance", label: "Compliance" },
     { href: "/pricing", label: "Pricing" },
     { href: "/audit-log", label: "Audit Log" },
     { href: "/admin", label: "Admin" },

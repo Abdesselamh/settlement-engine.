@@ -12,6 +12,7 @@ import AdminDashboard from "@/pages/AdminDashboard";
 import AuditLogPage from "@/pages/AuditLog";
 import Login from "@/pages/Login";
 import CheckoutSuccess from "@/pages/CheckoutSuccess";
+import Compliance from "@/pages/Compliance";
 
 function Router() {
   return (
@@ -24,6 +25,7 @@ function Router() {
       <Route path="/audit-log" component={AuditLogPage} />
       <Route path="/login" component={Login} />
       <Route path="/checkout/success" component={CheckoutSuccess} />
+      <Route path="/compliance" component={Compliance} />
       <Route component={NotFound} />
     </Switch>
   );

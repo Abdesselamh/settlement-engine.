@@ -1,151 +1,96 @@
-# InstantSettlement.ai — Replit Agent Guide
+# InstantSettlement.ai — Enterprise Settlement Platform
 
-## Overview
+## Project Overview
 
-InstantSettlement.ai is an enterprise-grade, AI-driven financial settlement platform targeting Tier-1 Banks, Hedge Funds, and Central Banks. It simulates and demonstrates T+0 (same-day) settlement capabilities with sub-millisecond latency.
+An institutional-grade, AI-driven T+0 settlement engine for Tier-1 Banks, Hedge Funds, and Central Banks. Built with React + Express + PostgreSQL, featuring a full Stripe payment integration, 2FA authentication, and enterprise admin capabilities.
 
-The platform consists of three main areas:
-- **Marketing/Home Page** — Hero, bento grid, social proof, and an interactive Settlement Revenue Calculator
-- **Live Dashboard** (`/dashboard`) — Real-time simulated transaction feed, latency charts, KPI cards, and CSV/PDF export
-- **Pricing Page** (`/pricing`) — Three institutional tiers (Essential, Professional, Enterprise) with live Stripe checkout and an interactive volume calculator
+## Architecture
 
-Additional pages: Admin Dashboard, Audit Log, Login (with 2FA), Request Demo, and Checkout Success.
+- **Frontend**: React 18 + TypeScript + Vite (port 5000, same as backend via Vite middleware)
+- **Backend**: Express.js + TypeScript
+- **Database**: PostgreSQL via Drizzle ORM
+- **Payments**: Stripe (via Replit Connector + stripe-replit-sync)
+- **Charts**: Recharts
+- **UI**: Shadcn/UI + Tailwind CSS + Framer Motion
 
----
+## Pages & Routes
 
-## User Preferences
+| Route | Component | Description |
+|-------|-----------|-------------|
+| `/` | Home.tsx | Hero, trust bar, bento grid |
+| `/dashboard` | Dashboard.tsx | Live settlement feed, charts, CSV/PDF export |
+| `/pricing` | Pricing.tsx | 3 tiers with Stripe checkout buttons |
+| `/request-demo` | RequestDemo.tsx | Lead capture form |
+| `/admin` | AdminDashboard.tsx | User mgmt, analytics, invoices, audit logs |
+| `/audit-log` | AuditLog.tsx | Searchable security audit log |
+| `/login` | Login.tsx | 2FA email authentication (6-digit OTP) |
+| `/checkout/success` | CheckoutSuccess.tsx | Post-payment receipt page |
 
-Preferred communication style: Simple, everyday language.
+## Database Schema (PostgreSQL)
 
----
+- `transactions` — Settlement records (TX ID, amount, currency, parties, status, latency)
+- `leads` — Demo request leads
+- `users` — Platform users (email, role, 2FA state, Stripe IDs)
+- `audit_logs` — Security audit trail
+- `invoices` — Payment records linked to Stripe
+- `stripe.*` — Managed automatically by stripe-replit-sync
 
-## System Architecture
+## API Endpoints
 
-### Frontend Architecture
+### Core
+- `GET /api/transactions` — list all transactions
+- `POST /api/transactions` — create transaction
+- `PATCH /api/transactions/:id/status` — update status
+- `GET /api/metrics` — platform KPIs
 
-- **Framework**: React 18 with TypeScript, bundled via Vite
-- **Routing**: Wouter (lightweight client-side routing, no React Router)
-- **State & Data Fetching**: TanStack Query v5 — handles server state, caching, polling, and mutations
-- **UI Components**: Shadcn/UI (New York style) built on Radix UI primitives
-- **Styling**: Tailwind CSS with a heavily customized dark "Institutional Dark" theme (`#050816` background, electric blue primary)
-- **Animations**: Framer Motion for smooth, high-end transitions
-- **Charts**: Recharts for settlement latency and throughput visualizations
-- **Forms**: React Hook Form with Zod validation via `@hookform/resolvers`
+### Auth (2FA)
+- `POST /api/auth/2fa/send` — send OTP to email
+- `POST /api/auth/2fa/verify` — verify OTP, return user
 
-**Key design decisions:**
-- Dark theme is the only theme; CSS variables are used throughout for theming flexibility
-- The dashboard uses a polling interval of 1000ms (`refetchInterval: 1000`) to create a "live" feel
-- A frontend simulation loop in `Dashboard.tsx` creates and progresses transactions through states (Pending → Validated → Settled) by calling the backend API
+### Admin
+- `GET /api/admin/users` — all users
+- `PATCH /api/admin/users/:id` — update user
+- `GET /api/admin/audit-logs` — audit log (limit 200)
+- `GET /api/admin/invoices` — all invoices
+- `GET /api/admin/stats` — platform stats
 
-**Client directory structure:**
+### Stripe
+- `GET /api/stripe/publishable-key` — frontend Stripe key
+- `GET /api/stripe/products` — synced products from stripe schema
+- `POST /api/stripe/checkout` — create Stripe Checkout session
+- `GET /api/stripe/session/:id` — retrieve session + create invoice
+- `POST /api/stripe/webhook` — Stripe webhook (registered before express.json())
+
+### Leads
+- `POST /api/leads` — create demo request lead
+
+### Export
+- `GET /api/export/transactions/csv` — download CSV
+- `GET /api/export/transactions/pdf` — view PDF/HTML report
+
+### Invoices
+- `GET /api/invoices/:id/pdf` — per-invoice PDF receipt
+
+## Stripe Products (Sandbox)
+- **Essential**: $5,000/mo — prod_U47obbvuY6GTQR / price_1T5zYvI4Lk9T5bFlQd0YHR2s
+- **Professional**: $25,000/mo — prod_U47ovsr7vYcHhs / price_1T5zYwI4Lk9T5bFlA6E8MOah
+
+## Integrations
+- **Stripe Connector**: conn_stripe_01KJKE7MKVH2XM6WEZY3HSK7XQ (sandbox + production)
+- **GitHub Connector**: conn_github_01KJK7FC3PEQD5XSTWMCMQARPX (repo: Abdesselamh/settlement-engine)
+
+## Key Design Decisions
+- Stripe webhook registered BEFORE express.json() (required for raw Buffer)
+- Stripe schema managed exclusively by stripe-replit-sync (never write to stripe.*)
+- 2FA OTP expiry: 10 minutes; demo code shown in UI for testing
+- PDF exports served as HTML (print-ready) to avoid server-side PDF dependencies
+- GitHub sync uses Octokit API (blobs + trees) — skips files >5MB and .local/
+
+## Development Commands
+```bash
+npm run dev          # Start dev server (port 5000)
+npm run build        # Production build
+npm run db:push      # Push schema to database
+npx tsx script/seed-stripe-products.ts  # Create Stripe products (run once)
+npx tsx script/sync-github-api.ts       # Push to GitHub
 ```
-client/
-  src/
-    pages/       — One file per route (Home, Dashboard, Pricing, etc.)
-    components/  — Navbar, Footer, SettlementCalculator, and all Shadcn/ui components
-    hooks/       — use-settlement.ts (all API interactions), use-mobile, use-toast
-    lib/         — queryClient.ts, utils.ts
-```
-
-### Backend Architecture
-
-- **Runtime**: Node.js with Express
-- **Entry point**: `server/index.ts`
-- **Pattern**: Thin Express routes delegating to a `storage` layer (DatabaseStorage class)
-- **Shared types**: `shared/schema.ts` and `shared/routes.ts` are shared between client and server via TypeScript path aliases (`@shared/*`)
-- **Build**: `esbuild` bundles the server to `dist/index.cjs`; Vite builds the client to `dist/public`
-
-**Route registration pattern:**
-- Stripe webhooks are registered **before** `express.json()` to receive raw Buffer payloads (required by Stripe signature verification)
-- All other API routes registered after JSON middleware
-
-**Key server files:**
-- `server/routes.ts` — API route definitions, seeds database on first run
-- `server/storage.ts` — `DatabaseStorage` class implementing `IStorage` interface (all DB operations)
-- `server/stripeClient.ts` — Fetches Stripe API keys dynamically from Replit Connectors
-- `server/github.ts` — Fetches GitHub token from Replit Connectors for code sync
-- `server/webhookHandlers.ts` — Processes Stripe webhooks
-- `server/email.ts` — Stubbed email service for 2FA codes and invoices (logs to console in MVP)
-
-### Data Storage
-
-- **Database**: PostgreSQL via Neon (serverless Postgres), connected via `DATABASE_URL` environment variable
-- **ORM**: Drizzle ORM with `drizzle-orm/node-postgres`
-- **Schema location**: `shared/schema.ts` (shared with frontend for type safety)
-- **Migrations**: Drizzle Kit, output to `./migrations`
-
-**Database tables:**
-| Table | Purpose |
-|-------|---------|
-| `transactions` | Settlement transactions (txId, amount, currency, sender, receiver, status, latencyMs) |
-| `leads` | Demo request form submissions |
-| `users` | Platform users with subscription and 2FA data |
-| `audit_logs` | Action audit trail (login, export, subscription events) |
-| `invoices` | Stripe invoice records |
-
-### Authentication
-
-- **Method**: Email-based 2FA (passwordless)
-- **Flow**: User enters email → backend generates 6-digit code → user enters code → session established
-- **Email delivery**: Stubbed in MVP (code logged to console), production would use SMTP/SendGrid
-- **Session data**: Stored in `localStorage` on the client (`user` key)
-- **Roles**: `user` and `admin` — admin users are redirected to `/admin` on login
-
-### API Structure
-
-Routes are defined in `shared/routes.ts` using a typed API object with Zod schemas for inputs and responses. This enables type-safe fetching on the client via `use-settlement.ts`.
-
-Main API endpoints:
-- `GET/POST /api/transactions` — List and create transactions
-- `PATCH /api/transactions/:id/status` — Update transaction status
-- `GET /api/metrics` — KPI metrics (throughput, latency, count)
-- `POST /api/leads` — Submit demo request
-- `POST /api/auth/2fa/send` / `POST /api/auth/2fa/verify` — 2FA login
-- `GET /api/admin/users` / `/api/admin/stats` / `/api/admin/audit-logs` / `/api/admin/invoices` — Admin data
-- `POST /api/stripe/create-checkout-session` — Initiate Stripe checkout
-- `GET /api/stripe/session/:id` — Retrieve session for success page
-- `POST /api/stripe/webhook` — Stripe webhook handler
-
----
-
-## External Dependencies
-
-### Stripe (via Replit Connector)
-- **Purpose**: Subscription billing for Essential ($5k/mo) and Professional ($25k/mo) tiers
-- **Integration**: `server/stripeClient.ts` fetches live API keys dynamically from Replit's connector service using `REPLIT_CONNECTORS_HOSTNAME` and `REPL_IDENTITY` environment variables
-- **Key features**: Checkout sessions, webhook handling (subscription lifecycle), Stripe products synced via `script/seed-stripe-products.ts`
-- **Webhook**: Must be registered before `express.json()` middleware to receive raw Buffer
-
-### GitHub (via Replit Connector)
-- **Purpose**: Sync project code to a GitHub repository (`script/sync-github-api.ts`)
-- **Integration**: `server/github.ts` fetches OAuth token via Replit Connectors
-- **Used by**: A utility script, not part of the main application flow
-
-### Neon (PostgreSQL)
-- **Purpose**: Serverless PostgreSQL database
-- **Connection**: `DATABASE_URL` environment variable required at startup
-- **Usage**: All persistent data (transactions, users, audit logs, invoices, leads)
-
-### Google Fonts
-- **Fonts loaded**: DM Sans, Fira Code, Geist Mono, Architects Daughter (HTML), Inter, JetBrains Mono (CSS)
-- **Usage**: Typography throughout the dark institutional UI theme
-
-### Replit-Specific Plugins (Dev only)
-- `@replit/vite-plugin-runtime-error-modal` — Error overlay in development
-- `@replit/vite-plugin-cartographer` — Replit code navigation
-- `@replit/vite-plugin-dev-banner` — Dev environment banner
-
-### Key npm Dependencies
-| Package | Purpose |
-|---------|---------|
-| `framer-motion` | Animations |
-| `recharts` | Financial charts |
-| `drizzle-orm` + `drizzle-zod` | ORM and schema-to-Zod bridging |
-| `stripe` | Stripe API client |
-| `@octokit/rest` | GitHub API client |
-| `connect-pg-simple` | PostgreSQL session store |
-| `zod` | Runtime validation (shared client/server) |
-| `date-fns` | Date formatting |
-| `xlsx` | CSV/PDF export (referenced in build allowlist) |
-| `nanoid` | Unique ID generation |
-| `wouter` | Lightweight React router |
